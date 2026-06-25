@@ -1,5 +1,6 @@
 using TMSAPI; // Ensure this matches your middleware's namespace
 using TmsApi.Services;
+using Microsoft.Extensions.Options;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -14,19 +15,42 @@ builder.Services.AddAuthorization();
 builder.Services.AddProblemDetails(); 
 
 // Register your custom middleware service if it has dependencies
-builder.Services.AddTransient<RequestLoggingMiddleware>();
+
+
+// builder.Services.AddTransient<RequestLoggingMiddleware>();
+
+
+
 // 🚨 THE CRASHING COMBINATION:
 builder.Services.AddSingleton<EnrollmentWorker>();
 builder.Services.AddScoped<IEnrollmentService, EnrollmentService>();
 
+// Bind configuration sections and enforce strict data annotation rules on start
+builder.Services.AddOptions<PaymentOptions>()
+    .BindConfiguration("Payments")
+    .ValidateDataAnnotations()
+    .ValidateOnStart(); // 🚀 Force the crash at application boot!
 
+// 2. Turn on the strict validation guardrails
 
+builder.Host.UseDefaultServiceProvider(options =>
+{
+   options.ValidateScopes = true;
+   options.ValidateOnBuild = true; 
+});
 
 
 // =================================================================
 // 🏗️ STEP 2: BUILD THE APPLICATION
 // =================================================================
 var app = builder.Build();
+
+
+app.MapGet("/api/enrollments/worker-smoke", (EnrollmentWorker worker) =>
+{
+    worker.ProcessBatch();
+    return Results.Ok("processed");
+});
 
 
 // =================================================================
