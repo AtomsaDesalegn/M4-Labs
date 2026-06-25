@@ -1,7 +1,37 @@
 using TMSAPI; // Ensure this matches your middleware's namespace
+using TmsApi.Services;
 
 var builder = WebApplication.CreateBuilder(args);
+
+// =================================================================
+// 🛠️ STEP 1: REGISTER SERVICES (The Dependency Injection Container)
+// =================================================================
+builder.Services.AddControllers();
+
+// 🚀 Fixes: Adds the required internal tools for Auth & Exceptions
+builder.Services.AddAuthentication();
+builder.Services.AddAuthorization();
+builder.Services.AddProblemDetails(); 
+
+// Register your custom middleware service if it has dependencies
+builder.Services.AddTransient<RequestLoggingMiddleware>();
+// 🚨 THE CRASHING COMBINATION:
+builder.Services.AddSingleton<EnrollmentWorker>();
+builder.Services.AddScoped<IEnrollmentService, EnrollmentService>();
+
+
+
+
+
+// =================================================================
+// 🏗️ STEP 2: BUILD THE APPLICATION
+// =================================================================
 var app = builder.Build();
+
+
+// =================================================================
+// 🌊 STEP 3: THE MIDDLEWARE PIPELINE (Order Matters Perfectly Here!)
+// =================================================================
 
 // 1. First (Outer Wrapper) - Tracks everything from the absolute start
 app.UseMiddleware<RequestLoggingMiddleware>();
