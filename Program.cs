@@ -1,86 +1,83 @@
-using TMSAPI; // Ensure this matches your middleware's namespace
+using TMSAPI; 
 using TmsApi.Services;
 using Microsoft.Extensions.Options;
+using Microsoft.Extensions.DependencyInjection;
+
 
 var builder = WebApplication.CreateBuilder(args);
 
 // =================================================================
-// 🛠️ STEP 1: REGISTER SERVICES (The Dependency Injection Container)
+// 🛠️ STEP 1: REGISTER SERVICES (Dependency Injection)
 // =================================================================
 builder.Services.AddControllers();
-
-// 🚀 Fixes: Adds the required internal tools for Auth & Exceptions
 builder.Services.AddAuthentication();
 builder.Services.AddAuthorization();
-builder.Services.AddProblemDetails(); 
+builder.Services.AddProblemDetails(); // RFC 7807 Standardized Errors
 
-// Register your custom middleware service if it has dependencies
-
-
-// builder.Services.AddTransient<RequestLoggingMiddleware>();
-
-
-
-// 🚨 THE CRASHING COMBINATION:
-builder.Services.AddSingleton<EnrollmentWorker>();
+// Core Application Services
 builder.Services.AddScoped<IEnrollmentService, EnrollmentService>();
 
-// Bind configuration sections and enforce strict data annotation rules on start
+// 🚀 FIXED: Register the worker as a Hosted Service so it boots automatically
+builder.Services.AddSingleton<EnrollmentWorker>(); 
+
+// Bind & Validate Configuration immediately on boot
 builder.Services.AddOptions<PaymentOptions>()
     .BindConfiguration("Payments")
     .ValidateDataAnnotations()
-    .ValidateOnStart(); // 🚀 Force the crash at application boot!
+    .ValidateOnStart(); 
 
-// 2. Turn on the strict validation guardrails
-
+// Guardrails against Scope Creep and invalid DI Graphs
 builder.Host.UseDefaultServiceProvider(options =>
 {
-   options.ValidateScopes = true;
-   options.ValidateOnBuild = true; 
+    options.ValidateScopes = true;
+    options.ValidateOnBuild = true; 
 });
-
 
 // =================================================================
 // 🏗️ STEP 2: BUILD THE APPLICATION
 // =================================================================
 var app = builder.Build();
 
-
-app.MapGet("/api/enrollments/worker-smoke", (EnrollmentWorker worker) =>
-{
-    worker.ProcessBatch();
-    return Results.Ok("processed");
-});
-
-
 // =================================================================
-// 🌊 STEP 3: THE MIDDLEWARE PIPELINE (Order Matters Perfectly Here!)
+// 🌊 STEP 3: THE MIDDLEWARE PIPELINE (Order is Critical)
 // =================================================================
 
-// 1. First (Outer Wrapper) - Tracks everything from the absolute start
+// 1. Correlation ID MUST be absolute first to stamp every response
+// app.UseMiddleware<CorrelationIdMiddleware>(); 
+
+// 2. Logging & Error Handling Surface
 app.UseMiddleware<RequestLoggingMiddleware>();
 
-// 2. Exception Handler - Catches any unhandled errors down the line
-app.UseExceptionHandler("/error");
+if (app.Environment.IsDevelopment())
+{
+    // Toggle on documentation tools (Scalar/Swagger) for local dev only
+    // app.UseOpenApi(); 
+}
+else
+{
+    app.UseExceptionHandler(); // Automatically leverages AddProblemDetails()
+    app.UseHsts();
+}
 
-// 3. HTTPS Redirection - Forces secure connections
 app.UseHttpsRedirection();
-
-// 4. Routing - Matches the URL to an endpoint
 app.UseRouting();
 
-// 5. Authentication - Identifies WHO the user is
 app.UseAuthentication();
-
-// 6. Authorization - Checks WHAT the user is allowed to do
 app.UseAuthorization();
 
-// 7. Last - The actual Endpoint protected by authorization rules
+// =================================================================
+// 🎯 STEP 4: ENDPOINTS & CONTROLLERS
+// =================================================================
+
+// 🚀 FIXED: Required to discover your /api/enrollments controller
+app.MapControllers(); 
+
+// Minimal API smoke tests
 app.MapGet("/api/assessments/result", () => Results.Ok(new
 {
     courseCode = "CS-101",
     studentId = "STU-001",
     letterGrade = "A"
-})).RequireAuthorization(); // Secured so only logged-in users can reach it
+})).RequireAuthorization();
 
 app.Run();
