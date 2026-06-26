@@ -1,8 +1,8 @@
-using TMSAPI; 
+using TMSAPI;
 using TmsApi.Services;
 using Microsoft.Extensions.Options;
 using Microsoft.Extensions.DependencyInjection;
-
+using Scalar.AspNetCore; // 👈 Add this at the very top line
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -12,25 +12,26 @@ var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddControllers();
 builder.Services.AddAuthentication();
 builder.Services.AddAuthorization();
-builder.Services.AddProblemDetails(); // RFC 7807 Standardized Errors
+builder.Services.AddProblemDetails(); // 🚀 TODO 1: Kept clean (removed duplicate)
+builder.Services.AddOpenApi();
 
 // Core Application Services
 builder.Services.AddScoped<IEnrollmentService, EnrollmentService>();
 
-// 🚀 FIXED: Register the worker as a Hosted Service so it boots automatically
-builder.Services.AddSingleton<EnrollmentWorker>(); 
+// Register the worker as a Hosted Service so it boots automatically
+builder.Services.AddSingleton<EnrollmentWorker>();
 
 // Bind & Validate Configuration immediately on boot
 builder.Services.AddOptions<PaymentOptions>()
     .BindConfiguration("Payments")
     .ValidateDataAnnotations()
-    .ValidateOnStart(); 
+    .ValidateOnStart();
 
 // Guardrails against Scope Creep and invalid DI Graphs
 builder.Host.UseDefaultServiceProvider(options =>
 {
     options.ValidateScopes = true;
-    options.ValidateOnBuild = true; 
+    options.ValidateOnBuild = true;
 });
 
 // =================================================================
@@ -42,22 +43,26 @@ var app = builder.Build();
 // 🌊 STEP 3: THE MIDDLEWARE PIPELINE (Order is Critical)
 // =================================================================
 
-// 1. Correlation ID MUST be absolute first to stamp every response
-// app.UseMiddleware<CorrelationIdMiddleware>(); 
-
-// 2. Logging & Error Handling Surface
+// 1. Logging & Error Handling Surface (Catches errors from everything below it)
 app.UseMiddleware<RequestLoggingMiddleware>();
+
+app.UseStatusCodePages();  // 🚀 TODO 3: Active globally
+
+// TODO 1: Check if the app is running in Development mode
+app.UseStatusCodePages(); // Can stay global to handle bare 404s/401s
 
 if (app.Environment.IsDevelopment())
 {
-    // Toggle on documentation tools (Scalar/Swagger) for local dev only
-    // app.UseOpenApi(); 
+    app.MapOpenApi(); 
+    app.MapScalarApiReference(); 
 }
 else
 {
-    app.UseExceptionHandler(); // Automatically leverages AddProblemDetails()
+    // TODO 3: Exception handler lives here so it only protects Production!
+    app.UseExceptionHandler(); 
     app.UseHsts();
 }
+
 
 app.UseHttpsRedirection();
 app.UseRouting();
@@ -69,8 +74,14 @@ app.UseAuthorization();
 // 🎯 STEP 4: ENDPOINTS & CONTROLLERS
 // =================================================================
 
-// 🚀 FIXED: Required to discover your /api/enrollments controller
-app.MapControllers(); 
+app.MapControllers();
+
+// TODO 4: Map a test route '/api/error' that intentionally throws
+// TODO 4: Map a test route '/api/error' that intentionally throws our custom TMS database exception
+app.MapGet("/api/error", () =>
+{
+    throw new TmsDatabaseException("Simulated database failure for ProblemDetails testing");
+});
 
 // Minimal API smoke tests
 app.MapGet("/api/assessments/result", () => Results.Ok(new
